@@ -1,0 +1,18 @@
+[package]
+name = "preloader"
+version = "0.1.0"
+edition = "2021"
+description = "Asynchronous data preloader library"
+license = "MIT"
+repository = "https://github.com/dleowns1102/preloader-rs.git"
+keywords = ["async", "preloader", "cache", "tokio", "concurrent"]
+categories = ["asynchronous", "concurrency"]
+authors = ["dleowns1102 <dleowns1102@gmail.com>"]
+
+[dependencies]
+atomic_enum = "0.3.0"
+thiserror = "2.0.12"
+tokio = { version = "1.45.1", features = ["full"] }
+
+[dev-dependencies]
+futures = "0.3"
