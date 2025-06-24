@@ -14,6 +14,8 @@ A high-performance asynchronous data preloader library for Rust that provides ef
 - **📊 State Management**: Clear state-based behavior (Idle, Start, Loading, Loaded)
 - **⚡ Non-blocking**: Optional non-blocking data retrieval with `try_get()`
 - **🔄 Idempotent**: Multiple load calls are safely ignored after the first one
+- **🛡️ Memory Safe**: Uses Rust's type system for compile-time safety
+- **⚡ Performance**: Unsafe unchecked methods for zero-cost abstractions
 
 ## Quick Start
 
@@ -23,6 +25,7 @@ Add this to your `Cargo.toml`:
 [dependencies]
 preloader = "0.1.0"
 tokio = { version = "1.0", features = ["full"] }
+thiserror = "1.0"
 ```
 
 ### Basic Usage
@@ -100,9 +103,11 @@ The main preloader struct that handles asynchronous data loading and caching.
 #### Methods
 
 - `new() -> Preloader<T>` - Create a new preloader instance
-- `load(future) -> ()` - Start loading data asynchronously
+- `load(future: impl Future<Output = T> + Send + 'static) -> ()` - Start loading data asynchronously
 - `get() -> Result<&T, PreloaderError>` - Get data (blocks until ready)
 - `try_get() -> Result<&T, PreloaderError>` - Try to get data (non-blocking)
+- `get_unchecked() -> &T` - Get data without checks (unsafe, panics if not ready)
+- `try_get_unchecked() -> &T` - Try to get data without checks (unsafe, panics if not ready)
 
 ### Error Types
 
@@ -113,9 +118,13 @@ pub enum PreloaderError {
     NotLoaded,
     #[error("Preloader is loading")]
     Loading,
-    #[error("Failed to receive data: {0}")]
-    ReceiveError(String),
 }
+```
+
+### Type Aliases
+
+```rust
+type Result<T> = std::result::Result<T, PreloaderError>;
 ```
 
 ## Performance Characteristics
@@ -124,6 +133,8 @@ pub enum PreloaderError {
 - **Concurrency**: Excellent - supports unlimited concurrent readers
 - **Latency**: Near-zero for cached data access
 - **Thread Safety**: Full `Send + Sync` implementation
+- **Atomic Operations**: Uses atomic state transitions for optimal performance
+- **Zero-Cost Abstractions**: Unsafe unchecked methods for maximum performance
 
 ## Use Cases
 
@@ -132,6 +143,8 @@ pub enum PreloaderError {
 - **File Caching**: Cache frequently accessed files
 - **API Response Caching**: Cache external API responses
 - **Resource Initialization**: Initialize heavy resources on startup
+- **Lazy Loading**: Load expensive resources only when first accessed
+- **High-Performance Systems**: Use unchecked methods in performance-critical paths
 
 ## Examples
 
@@ -153,7 +166,7 @@ async fn load_config() -> Config {
     
     preloader.load(async {
         // Load from file or environment
-        tokio::fs::read_to_string("config.json").await.unwrap();
+        let content = tokio::fs::read_to_string("config.json").await.unwrap();
         serde_json::from_str(&content).unwrap()
     }).await;
     
@@ -178,6 +191,98 @@ async fn create_connection_pool() -> PgPool {
 }
 ```
 
+### High-Performance Access Pattern
+
+```rust
+use preloader::Preloader;
+use std::sync::Arc;
+
+struct AppState {
+    config: Arc<Preloader<Config>>,
+}
+
+impl AppState {
+    fn new() -> Self {
+        Self {
+            config: Arc::new(Preloader::new()),
+        }
+    }
+    
+    // Safe method for general use
+    async fn get_config(&self) -> Result<&Config, PreloaderError> {
+        self.config.get().await
+    }
+    
+    // High-performance method for hot paths
+    fn get_config_fast(&self) -> &Config {
+        // Only use when you're certain the config is loaded
+        unsafe { self.config.get_unchecked() }
+    }
+}
+```
+
+### Lazy Resource Loading
+
+```rust
+use preloader::Preloader;
+use std::sync::Arc;
+
+struct AppState {
+    config: Arc<Preloader<Config>>,
+    cache: Arc<Preloader<Cache>>,
+}
+
+impl AppState {
+    fn new() -> Self {
+        Self {
+            config: Arc::new(Preloader::new()),
+            cache: Arc::new(Preloader::new()),
+        }
+    }
+    
+    async fn get_config(&self) -> &Config {
+        // Load config only when first accessed
+        if self.config.try_get().is_err() {
+            self.config.load(async {
+                // Load configuration logic
+                Config::load_from_env().await
+            }).await;
+        }
+        self.config.get().await.unwrap()
+    }
+}
+```
+
+## State Transitions
+
+The preloader follows a clear state machine:
+
+1. **Idle** → **Start**: When `load()` is first called
+2. **Start** → **Loading**: When the future is spawned
+3. **Loading** → **Loaded**: When the future completes successfully
+4. **Idle/Start** → **Idle**: When `load()` is called again (ignored)
+
+## Thread Safety
+
+The `Preloader` is designed for concurrent access:
+
+- **Multiple Readers**: Unlimited concurrent `get()` and `try_get()` calls
+- **Single Writer**: Only one `load()` call is processed
+- **Atomic State**: State transitions are atomic and lock-free
+- **Memory Ordering**: Uses appropriate memory ordering for performance
+
+## Safety Considerations
+
+### Safe Methods
+- `get()` - Always safe, blocks until data is ready
+- `try_get()` - Always safe, returns error if not ready
+
+### Unsafe Methods
+- `get_unchecked()` - **Unsafe**: Panics if data is not loaded
+- `try_get_unchecked()` - **Unsafe**: Panics if data is not loaded
+
+**Use unsafe methods only when you are absolutely certain the data is loaded and ready.**
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
@@ -191,6 +296,19 @@ cargo test
 cargo doc --open
 ```
 
+### Running Tests
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests with output
+cargo test -- --nocapture
+
+# Run specific test
+cargo test test_concurrent_access
+```
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
@@ -198,6 +316,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - Built with [Tokio](https://tokio.rs/) for async runtime
+- Uses [atomic-enum](https://docs.rs/atomic-enum/) for atomic state management
 - Uses [thiserror](https://docs.rs/thiserror/) for error handling
 - Inspired by modern caching patterns and concurrent programming best practices
 

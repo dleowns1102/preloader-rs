@@ -182,6 +182,26 @@ impl<T: Send + 'static> Preloader<T> {
         }
     }
 
+    /// Retrieves the loaded data without checking the state.
+    ///
+    /// This method is unsafe and should only be used when you are sure that the data is loaded.
+    ///
+    /// # Returns
+    ///
+    pub unsafe fn get_unchecked(&self) -> &T {
+        match self.state.load(Ordering::Relaxed) {
+            PreloaderState::Idle | PreloaderState::Start => {
+                panic!("Preloader is not loaded");
+            }
+            PreloaderState::Loading => {
+                return self.get_value();
+            }
+            PreloaderState::Loaded => {
+                return self.get_value();
+            }
+        }
+    }
+
     /// Attempts to retrieve the loaded data immediately.
     ///
     /// Unlike `get()`, this method does not block. If the data is not yet loaded or is still loading, returns an error immediately.
@@ -234,6 +254,25 @@ impl<T: Send + 'static> Preloader<T> {
             PreloaderState::Loaded => {
                 return Ok(self.get_value());
             }
+        }
+    }
+
+    /// Retrieves the loaded data without checking the state.
+    ///
+    /// This method is unsafe and should only be used when you are sure that the data is loaded.
+    ///
+    /// # Returns
+    ///
+    /// Reference to the stored value
+    pub unsafe fn try_get_unchecked(&self) -> &T {
+        match self.state.load(Ordering::Relaxed) {
+            PreloaderState::Idle | PreloaderState::Start => {
+                panic!("Preloader is not loaded");
+            }
+            PreloaderState::Loading => {
+                panic!("Preloader is loading");
+            }
+            PreloaderState::Loaded => self.get_value(),
         }
     }
 
