@@ -327,4 +327,81 @@ mod tests {
         let data = result.unwrap();
         assert!(data.starts_with("data "));
     }
+
+    #[tokio::test]
+    async fn test_take_after_load() {
+        let preloader = Preloader::new();
+
+        // Start loading
+        preloader
+            .load(async {
+                sleep(Duration::from_millis(10)).await;
+                "take test data".to_string()
+            })
+            .await;
+
+        // Take data, consuming the preloader
+        let result = preloader.take().await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "take test data");
+        
+        // Note: preloader is consumed and cannot be used after take()
+    }
+
+    #[tokio::test]
+    async fn test_take_before_load() {
+        let preloader = Preloader::<String>::new();
+
+        // Try to take before loading, consuming the preloader
+        let result = preloader.take().await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PreloaderError::NotLoaded));
+        
+        // Note: preloader is consumed and cannot be used after take()
+    }
+
+    #[tokio::test]
+    async fn test_take_while_loading() {
+        let preloader = Preloader::new();
+
+        // Start loading (long task)
+        preloader
+            .load(async {
+                sleep(Duration::from_millis(100)).await;
+                "slow data for take".to_string()
+            })
+            .await;
+
+        // Take data, consuming the preloader
+        let result = preloader.take().await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "slow data for take");
+        
+        // Note: preloader is consumed and cannot be used after take()
+    }
+
+    #[tokio::test]
+    async fn test_is_loaded() {
+        let preloader = Preloader::new();
+        
+        // Initially not loaded
+        assert!(!preloader.is_loaded());
+        
+        // Start loading
+        preloader
+            .load(async {
+                sleep(Duration::from_millis(10)).await;
+                "loaded data".to_string()
+            })
+            .await;
+        
+        // Still not loaded immediately after starting
+        assert!(!preloader.is_loaded());
+        
+        // Wait for completion
+        preloader.get().await.unwrap();
+        
+        // Now it should be loaded
+        assert!(preloader.is_loaded());
+    }
 }

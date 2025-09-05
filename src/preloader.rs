@@ -182,6 +182,75 @@ impl<T: Send + 'static> Preloader<T> {
         }
     }
 
+    /// Takes the loaded data, consuming it.
+    ///
+    /// This method consumes the loaded data, leaving None in its place.
+    /// Returns an error if the data is not yet loaded.
+    /// If the data is still loading, waits until loading is complete.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(T)`: If the data was successfully loaded and taken
+    /// - `Err(PreloaderError)`: If the data is not loaded or an error occurred during loading
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use preloader::Preloader;
+    /// use tokio;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let preloader = Preloader::new();
+    ///     // Start loading
+    ///     preloader.load(async { "data".to_string() }).await;
+    ///     // Take data, consuming the preloader
+    ///     match preloader.take().await {
+    ///         Ok(data) => println!("Taken data: {}", data),
+    ///         Err(e) => println!("Error: {}", e),
+    ///     }
+    ///     // Note: preloader is consumed and cannot be used after take()
+    ///     // The following code would not compile:
+    ///     // match preloader.try_get() { ... } // Error: use of moved value
+    /// }
+    /// ```
+    /// Takes the loaded data, consuming the Preloader.
+    ///
+    /// This method consumes the Preloader itself, ensuring it cannot be used after taking the value.
+    /// Returns an error if the data is not yet loaded.
+    /// If the data is still loading, waits until loading is complete.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(T)`: If the data was successfully loaded and taken
+    /// - `Err(PreloaderError)`: If the data is not loaded or an error occurred during loading
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use preloader::Preloader;
+    /// use tokio;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let preloader = Preloader::new();
+    ///     // Start loading
+    ///     preloader.load(async { "data".to_string() }).await;
+    ///     // Take data, consuming the preloader
+    ///     match preloader.take().await {
+    ///         Ok(data) => println!("Taken data: {}", data),
+    ///         Err(e) => println!("Error: {}", e),
+    ///     }
+    ///     // Preloader cannot be used after take() as it has been consumed
+    /// }
+    /// ```
+    pub async fn take(self) -> Result<T> {
+        match self.get().await {
+            Ok(_) => self.take_value(),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Retrieves the loaded data without checking the state.
     ///
     /// This method is unsafe and should only be used when you are sure that the data is loaded.
@@ -314,5 +383,63 @@ impl<T: Send + 'static> Preloader<T> {
             *handle = None;
         }
         self.state.store(PreloaderState::Loaded, Ordering::Release);
+    }
+
+    /// Takes the stored value, leaving None in its place.
+    ///
+    /// # Returns
+    ///
+    /// Result containing the stored value or an error if the value is None
+    ///
+    /// # Safety
+    ///
+    /// This method should only be called when the value is guaranteed to exist.
+    #[inline]
+    fn take_value(self) -> Result<T> {
+        unsafe {
+            let value = (*self.value.get()).take();
+            if let Some(value) = value {
+                Ok(value)
+            } else {
+                Err(PreloaderError::NotLoaded)
+            }
+        }
+    }
+
+    /// Checks if the preloader has completed loading and data is available.
+    ///
+    /// This method returns true if the preloader is in the `Loaded` state,
+    /// indicating that data is ready to be accessed without blocking.
+    ///
+    /// # Returns
+    ///
+    /// - `true`: If the data is loaded and ready for immediate access
+    /// - `false`: If the data is not loaded yet or is still loading
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use preloader::Preloader;
+    /// use tokio;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let preloader = Preloader::new();
+    ///     
+    ///     // Check before loading
+    ///     assert!(!preloader.is_loaded());
+    ///     
+    ///     // Start loading
+    ///     preloader.load(async { "data".to_string() }).await;
+    ///     
+    ///     // Wait for completion
+    ///     preloader.get().await.unwrap();
+    ///     
+    ///     // Check after loading
+    ///     assert!(preloader.is_loaded());
+    /// }
+    /// ```
+    pub fn is_loaded(&self) -> bool {
+        matches!(self.state.load(Ordering::Relaxed), PreloaderState::Loaded)
     }
 }
