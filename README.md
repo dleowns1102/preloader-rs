@@ -16,6 +16,7 @@ A high-performance asynchronous data preloader library for Rust that provides ef
 - **🔄 Idempotent**: Multiple load calls are safely ignored after the first one
 - **🛡️ Memory Safe**: Uses Rust's type system for compile-time safety
 - **⚡ Performance**: Unsafe unchecked methods for zero-cost abstractions
+- **🔄 Consumption**: Take ownership of loaded data with `take()`
 
 ## Quick Start
 
@@ -23,7 +24,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-preloader = "0.1.0"
+preloader = "0.1.3"
 tokio = { version = "1.0", features = ["full"] }
 thiserror = "1.0"
 ```
@@ -106,6 +107,8 @@ The main preloader struct that handles asynchronous data loading and caching.
 - `load(future: impl Future<Output = T> + Send + 'static) -> ()` - Start loading data asynchronously
 - `get() -> Result<&T, PreloaderError>` - Get data (blocks until ready)
 - `try_get() -> Result<&T, PreloaderError>` - Try to get data (non-blocking)
+- `take(self) -> Result<T, PreloaderError>` - Take ownership of data, consuming the preloader (blocks until ready)
+- `is_loaded() -> bool` - Check if data is loaded and ready for immediate access
 - `get_unchecked() -> &T` - Get data without checks (unsafe, panics if not ready)
 - `try_get_unchecked() -> &T` - Try to get data without checks (unsafe, panics if not ready)
 
@@ -145,6 +148,7 @@ type Result<T> = std::result::Result<T, PreloaderError>;
 - **Resource Initialization**: Initialize heavy resources on startup
 - **Lazy Loading**: Load expensive resources only when first accessed
 - **High-Performance Systems**: Use unchecked methods in performance-critical paths
+- **Data Processing Pipelines**: Use `take()` to consume data for transformation pipelines
 
 ## Examples
 
@@ -188,6 +192,39 @@ async fn create_connection_pool() -> PgPool {
     }).await;
     
     preloader.get().await.unwrap().clone()
+}
+```
+
+### Data Consumption Pattern
+
+```rust
+use preloader::Preloader;
+use tokio;
+
+#[tokio::main]
+async fn main() {
+    let preloader = Preloader::new();
+    
+    // Start loading data asynchronously
+    preloader.load(async {
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        "data to consume".to_string()
+    }).await;
+    
+    // Take ownership of the data, consuming the preloader itself
+    match preloader.take().await {
+        Ok(data) => {
+            println!("Consumed data: {}", data);
+            // Do something with owned data
+            let modified = data + " - modified";
+            println!("Modified: {}", modified);
+        },
+        Err(e) => println!("Error: {}", e),
+    }
+    
+    // Note: preloader is consumed and cannot be used after take()
+    // The following code would not compile:
+    // let result = preloader.try_get(); // Error: use of moved value
 }
 ```
 
