@@ -440,6 +440,6 @@ impl<T: Send + 'static> Preloader<T> {
     /// }
     /// ```
     pub fn is_loaded(&self) -> bool {
-        matches!(self.state.load(Ordering::Relaxed), PreloaderState::Loaded)
+        self.try_get().is_ok()
     }
 }
